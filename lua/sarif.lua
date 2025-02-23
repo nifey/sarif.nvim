@@ -1,11 +1,18 @@
 local M = {}
 
+local state = {
+  sarif_logs = {},
+  table_widget = {},
+  detail_widget = {},
+  window_configs = {},
+}
+
 --[[
 --  Result class
 --]]
 local Result = {}
 Result.__index = Result
-Result.new = function(json)
+Result.new = function(json, log_id, run_id, result_id)
   local level = ""
   if json["level"] == "error" then
     level = "ERR"
@@ -25,13 +32,31 @@ Result.new = function(json)
     json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
   }
 
-  return {
+  local rule_id
+  local rule_index = json["ruleIndex"]
+  if not rule_index then
+    rule_id = json["ruleId"]
+    for index, rule in ipairs(state.sarif_logs[log_id].runs[run_id].rules) do
+      if rule_id == rule["id"] then
+        rule_index = index
+        break
+      end
+    end
+  else
+    rule_index = rule_index + 1 -- To convert to 1 based indexing
+    rule_id = state.sarif_logs[log_id].runs[run_id].rules[rule_index]['id']
+  end
+
+  state.sarif_logs[log_id].runs[run_id].results[result_id] = {
+    id = {log_id, run_id, result_id},
     json = json,
     level = level,
     start_position = start_position,
     end_position = end_position,
     file = filename,
     message = json["message"]["text"],
+    rule_id = rule_id,
+    rule_index = rule_index,
   }
 end
 
@@ -40,17 +65,33 @@ end
 --]]
 local Run = {}
 Run.__index = Run
-Run.new = function(json)
-  local results = {}
-  -- Get a list of all results
-  for _, result in ipairs(json["results"]) do
-    table.insert(results, Result.new(result))
-  end
+Run.new = function(json, log_id, run_id)
+  state.sarif_logs[log_id].runs[run_id] = {}
+  local run = state.sarif_logs[log_id].runs[run_id]
+  run.json = json
 
-  return {
-    json = json,
-    results = results,
-  }
+  local tool = json["tool"]["driver"]["name"]
+  tool = tool .. ((" " .. json["tool"]["driver"]["version"]) or "")
+  tool = tool .. ((" (" .. json["tool"]["driver"]["informationUri"] .. ")") or "")
+  run.tool = tool
+
+  local rules = {}
+  for rule_index, rule in ipairs(json["tool"]["driver"]["rules"]) do
+    rules[rule_index] = rule
+  end
+  run.rules = rules
+
+  local artifacts = {}
+  for artifact_index, artifact in ipairs(json["artifacts"]) do
+    artifacts[artifact_index] = artifact
+  end
+  run.artifacts = artifacts
+
+  run.results = {}
+  -- Get a list of all results
+  for result_id, result in ipairs(json["results"]) do
+    Result.new(result, log_id, run_id, result_id)
+  end
 end
 
 function Run:get_results(self)
@@ -75,17 +116,16 @@ SarifLog.new = function(filename)
     return
   end
 
+  state.sarif_logs[filename] = {}
+  state.sarif_logs[filename].json = json
+  state.sarif_logs[filename].runs = {}
   -- Get a list of all runs
   local runs = {}
-  for _, run in ipairs(json["runs"]) do
-    table.insert(runs, Run.new(run))
+  for run_id, run in ipairs(json["runs"]) do
+    Run.new(run, filename, run_id)
   end
 
-  return {
-    filename = filename,
-    json = json,
-    runs = runs,
-  }
+  vim.print("Loaded SARIF log " .. filename .. " successfully")
 end
 
 function SarifLog:get_results(self)
@@ -99,14 +139,8 @@ function SarifLog:get_results(self)
 end
 
 --[[
---  Plugin State and Commands
+--  Plugin Commands
 --]]
-local state = {
-  sarif_logs = {},
-  table_widget = {},
-  detail_widget = {},
-  window_configs = {},
-}
 
 local function create_window_configurations()
   local width = vim.o.columns - 8
@@ -221,8 +255,17 @@ end
 
 function DetailWidget:render(self, result)
   local lines = {}
+  local log_id = result.id[1]
+  local run_id = result.id[2]
   table.insert(lines, "Message     : " .. result.level .. "\t" .. result.message)
   table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
+  table.insert(lines, "SARIF log   : " .. result.id[1])
+  table.insert(lines, "Reported by : " .. state.sarif_logs[log_id].runs[run_id].tool)
+  local rule = state.sarif_logs[log_id].runs[run_id].rules[result.rule_index]
+  table.insert(lines, "Rule        : (" .. result.rule_id .. ") " .. rule["shortDescription"]["text"])
+  if rule["helpUri"] then
+    table.insert(lines, "Help URI    : " .. rule["helpUri"])
+  end
   vim.api.nvim_buf_set_lines(self.buffer, 0, -1, false, {}) -- Clear buffer
   vim.api.nvim_buf_set_lines(self.buffer, 0, 0, false, lines)
 end
@@ -241,11 +284,7 @@ end
 
 M.load_sarif_file = function(opts)
   filename = opts[1]
-  local sarif_log = SarifLog.new(filename)
-  if sarif_log then
-    state.sarif_logs[filename] = sarif_log
-    vim.print("Loaded SARIF log " .. filename .. " successfully")
-  end
+  SarifLog.new(filename)
 end
 
 local buffer_keymap = function(key, buf, command)
