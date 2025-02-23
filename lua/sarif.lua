@@ -118,11 +118,14 @@ SarifLog.new = function(filename)
   end
 
   -- Load the .sarifexplorer file if available
-  local ok, file_contents = pcall(vim.fn.readfile, filename .. ".sarifexplorer")
-  if ok then
-    local ok, json = pcall(vim.fn.json_decode, file_contents)
+  local comment_filename = filename .. ".sarifexplorer"
+  if vim.fn.filereadable(comment_filename) then
+    local ok, comment_file_contents = pcall(vim.fn.readfile, comment_filename)
     if ok then
-      state.sarif_comments[filename] = json
+      local ok, comments_json = pcall(vim.fn.json_decode, comment_file_contents)
+      if ok then
+        state.sarif_comments[filename] = comments_json
+      end
     end
   end
   if not state.sarif_comments[filename] then
@@ -284,7 +287,8 @@ function DetailWidget:render(self, result)
   end
 
   -- Display state and comments
-  local comments = state.sarif_comments[log_id]["resultIdToNotes"][tostring(run_id-1) .. "|" .. tostring(result_id-1)]
+  local result_comment_data = state.sarif_comments[log_id]["resultIdToNotes"] or {}
+  local comments = result_comment_data[tostring(run_id-1) .. "|" .. tostring(result_id-1)]
   if comments then
     local result_status
     if comments["status"] == 1 then
@@ -312,7 +316,9 @@ render_sarif_window = function()
   TableWidget:render(state.table_widget)
   local current_row = state.table_widget.current_row
   local current_result = state.table_widget.data[current_row]
-  DetailWidget:render(state.detail_widget, current_result)
+  if current_result then
+    DetailWidget:render(state.detail_widget, current_result)
+  end
 end
 
 local function close_sarif_window()
@@ -341,38 +347,56 @@ local function goto_result_location()
   -- FIXME If not start_col goto first non empty
 end
 
-local function save_comments_file(log_id)
+local function save_comments_file()
+  local current_result_id = state.table_widget.data[state.table_widget.current_row].id
+  local log_id = current_result_id[1]
   local sarif_comments = state.sarif_comments[log_id]
-  local file_contents = vim.fn.json_encode(sarif_comments)
-  vim.fn.writefile({file_contents}, filename .. ".sarifexplorer")
+  if sarif_comments ~= {} then
+    local file_contents = vim.fn.json_encode(sarif_comments)
+    vim.fn.writefile({file_contents}, filename .. ".sarifexplorer")
+  end
 end
 
-local function toggle_result_state()
+local function get_current_result_comment_data()
   local current_result_id = state.table_widget.data[state.table_widget.current_row].id
   local log_id = current_result_id[1]
   local run_id = current_result_id[2]
   local result_id = current_result_id[3]
   local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
-  local result_status = state.sarif_comments[log_id]["resultIdToNotes"][id_string]["status"]
-  if not result_status then
-    result_status = 0
+  local result_comment_data = state.sarif_comments[log_id]["resultIdToNotes"][id_string] or {}
+  if not result_comment_data then
+    state.sarif_comments[log_id]["resultIdToNotes"][id_string] = {}
+    result_comment_data = {}
   end
+  return result_comment_data
+end
+
+local function set_current_result_comment_data(data)
+  local current_result_id = state.table_widget.data[state.table_widget.current_row].id
+  local log_id = current_result_id[1]
+  local run_id = current_result_id[2]
+  local result_id = current_result_id[3]
+  local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
+  state.sarif_comments[log_id]["resultIdToNotes"][id_string] = data
+end
+
+local function toggle_result_state()
+  local result_comment_data = get_current_result_comment_data()
+  local result_status = result_comment_data["status"] or 0
   result_status = (result_status + 1) % 3
-  state.sarif_comments[log_id]["resultIdToNotes"][id_string]["status"] = result_status
-  save_comments_file(log_id)
+  result_comment_data["status"] = result_status
+  set_current_result_comment_data(result_comment_data)
+  save_comments_file()
   render_sarif_window()
 end
 
 local function edit_result_comment()
-  local current_result_id = state.table_widget.data[state.table_widget.current_row].id
-  local log_id = current_result_id[1]
-  local run_id = current_result_id[2]
-  local result_id = current_result_id[3]
-  local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
-  local comment = state.sarif_comments[log_id]["resultIdToNotes"][id_string]["comment"]
+  local result_comment_data = get_current_result_comment_data()
+  local comment = result_comment_data["comment"] or ""
   comment = vim.fn.input({ prompt = 'Comment: ', default = comment})
-  state.sarif_comments[log_id]["resultIdToNotes"][id_string]["comment"] = comment
-  save_comments_file(log_id)
+  result_comment_data["comment"] = comment
+  set_current_result_comment_data(result_comment_data)
+  save_comments_file()
   render_sarif_window()
 end
 
