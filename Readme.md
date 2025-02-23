@@ -2,7 +2,7 @@
 
 A Neovim plugin for viewing [SARIF](https://sarifweb.azurewebsites.net/) formatted static analysis results. 
 
-[SARIF](https://sarifweb.azurewebsites.net/) (Static Analysis Results Interchange Format) is an open standard for making results coming from static analysis tools to be interoperable. A few static analysis tools support SARIF output, while there exists many converters that convert other static analysis tool outputs into SARIF format (eg: [Multitool](https://github.com/trailofbits/vscode-sarif-explorer), [ESLint](https://www.npmjs.com/package/@microsoft/eslint-formatter-sarif), [axe](https://www.npmjs.com/package/axe-sarif-converter)).
+[SARIF](https://sarifweb.azurewebsites.net/) (Static Analysis Results Interchange Format) is an open standard for making results coming from static analysis tools to be interoperable. A few static analysis tools support SARIF output, while there exists many converters that convert other static analysis tool outputs into SARIF format (eg: [SARIF Multitool](https://github.com/microsoft/sarif-sdk/blob/main/docs/multitool-usage.md#supported-converters), [ESLint](https://www.npmjs.com/package/@microsoft/eslint-formatter-sarif), [axe](https://www.npmjs.com/package/axe-sarif-converter)).
 
 There are extensions for VSCode for loading and viewing SARIF logs : [SARIF Viewer](https://github.com/Microsoft/sarif-vscode-extension/) & [SARIF Explorer](https://github.com/trailofbits/vscode-sarif-explorer). This plugin tries to do what these extensions do, but inside Neovim.
 
