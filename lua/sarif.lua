@@ -2,6 +2,7 @@ local M = {}
 
 local state = {
   sarif_logs = {},
+  sarif_comments = {},
   table_widget = {},
   detail_widget = {},
   window_configs = {},
@@ -112,8 +113,22 @@ SarifLog.new = function(filename)
   end
   local ok, json = pcall(vim.fn.json_decode, file_contents)
   if not ok then
-    vim.print("Error while loading file: " .. sarif_log)
+    vim.print("Error while loading file: " .. filename)
     return
+  end
+
+  -- Load the .sarifexplorer file if available
+  local ok, file_contents = pcall(vim.fn.readfile, filename .. ".sarifexplorer")
+  if ok then
+    local ok, json = pcall(vim.fn.json_decode, file_contents)
+    if ok then
+      state.sarif_comments[filename] = json
+    end
+  end
+  if not state.sarif_comments[filename] then
+    state.sarif_comments[filename] = {}
+    state.sarif_comments[filename]["resultIdToNotes"] = {}
+    state.sarif_comments[filename]["hiddenRules"] = {}
   end
 
   state.sarif_logs[filename] = {}
@@ -257,6 +272,7 @@ function DetailWidget:render(self, result)
   local lines = {}
   local log_id = result.id[1]
   local run_id = result.id[2]
+  local result_id = result.id[3]
   table.insert(lines, "Message     : " .. result.level .. "\t" .. result.message)
   table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
   table.insert(lines, "SARIF log   : " .. result.id[1])
@@ -266,6 +282,28 @@ function DetailWidget:render(self, result)
   if rule["helpUri"] then
     table.insert(lines, "Help URI    : " .. rule["helpUri"])
   end
+
+  -- Display state and comments
+  local comments = state.sarif_comments[log_id]["resultIdToNotes"][tostring(run_id-1) .. "|" .. tostring(result_id-1)]
+  if comments then
+    local result_status
+    if comments["status"] == 1 then
+      result_status = "False positive"
+    elseif comments["status"] == 2 then
+      result_status = "True positive"
+    end
+    table.insert(lines, "")
+    table.insert(lines, "")
+    if result_status then
+      table.insert(lines, "State       : " .. result_status)
+    else
+      table.insert(lines, "")
+    end
+    if comments["comment"] then
+      table.insert(lines, "Comments    : " .. comments["comment"])
+    end
+  end
+
   vim.api.nvim_buf_set_lines(self.buffer, 0, -1, false, {}) -- Clear buffer
   vim.api.nvim_buf_set_lines(self.buffer, 0, 0, false, lines)
 end
@@ -303,6 +341,41 @@ local function goto_result_location()
   -- FIXME If not start_col goto first non empty
 end
 
+local function save_comments_file(log_id)
+  local sarif_comments = state.sarif_comments[log_id]
+  local file_contents = vim.fn.json_encode(sarif_comments)
+  vim.fn.writefile({file_contents}, filename .. ".sarifexplorer")
+end
+
+local function toggle_result_state()
+  local current_result_id = state.table_widget.data[state.table_widget.current_row].id
+  local log_id = current_result_id[1]
+  local run_id = current_result_id[2]
+  local result_id = current_result_id[3]
+  local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
+  local result_status = state.sarif_comments[log_id]["resultIdToNotes"][id_string]["status"]
+  if not result_status then
+    result_status = 0
+  end
+  result_status = (result_status + 1) % 3
+  state.sarif_comments[log_id]["resultIdToNotes"][id_string]["status"] = result_status
+  save_comments_file(log_id)
+  render_sarif_window()
+end
+
+local function edit_result_comment()
+  local current_result_id = state.table_widget.data[state.table_widget.current_row].id
+  local log_id = current_result_id[1]
+  local run_id = current_result_id[2]
+  local result_id = current_result_id[3]
+  local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
+  local comment = state.sarif_comments[log_id]["resultIdToNotes"][id_string]["comment"]
+  comment = vim.fn.input({ prompt = 'Comment: ', default = comment})
+  state.sarif_comments[log_id]["resultIdToNotes"][id_string]["comment"] = comment
+  save_comments_file(log_id)
+  render_sarif_window()
+end
+
 M.view_sarif = function()
   -- Create a floating window to display results
   create_window_configurations()
@@ -317,16 +390,20 @@ M.view_sarif = function()
 
   local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
   state.table_widget = TableWidget.new(result_data, table_window, table_buffer, {"level", "file", "message"}, {5, 70, 80})
-  buffer_keymap("q", table_buffer, function() close_sarif_window() end)
+  buffer_keymap("q", table_buffer, close_sarif_window)
   buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
   buffer_keymap("j", table_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
+  buffer_keymap("l", table_buffer, toggle_result_state)
+  buffer_keymap("i", table_buffer, edit_result_comment)
   buffer_keymap("<Enter>", table_buffer, function() goto_result_location() end)
 
   local detail_window, detail_buffer = create_window_and_buffer(state.window_configs["detail"])
   state.detail_widget = DetailWidget.new(detail_window, detail_buffer)
-  buffer_keymap("q", detail_buffer, function() close_sarif_window() end)
+  buffer_keymap("q", detail_buffer, close_sarif_window)
   buffer_keymap("k", detail_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
   buffer_keymap("j", detail_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
+  buffer_keymap("l", detail_buffer, toggle_result_state)
+  buffer_keymap("i", detail_buffer, edit_result_comment)
   buffer_keymap("<Enter>", detail_buffer, function() goto_result_location() end)
 
   render_sarif_window()
