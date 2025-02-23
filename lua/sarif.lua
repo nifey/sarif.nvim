@@ -98,6 +98,50 @@ function SarifLog:get_results(self)
   return results
 end
 
+--[[
+--  Plugin State and Commands
+--]]
+local state = {
+  sarif_logs = {},
+  table_widget = {},
+  detail_widget = {},
+  window_configs = {},
+}
+
+local function create_window_configurations()
+  local width = vim.o.columns - 8
+  local height = vim.o.lines - 4
+  local half_height = math.floor(height/2)
+  state.window_configs["table"] = {
+    relative = "editor",
+    width = width,
+    height = half_height - 3,
+    style = "minimal",
+    border = "single",
+    col = 4,
+    row = 2,
+    zindex = 1,
+  }
+  state.window_configs["detail"] = {
+    relative = "editor",
+    width = width,
+    height = height - half_height,
+    style = "minimal",
+    border = "single",
+    col = 4,
+    row = 2 + half_height,
+    zindex = 1,
+  }
+end
+
+local function create_window_and_buffer(window_config)
+  local buffer = vim.api.nvim_create_buf(false, true)
+  local window = vim.api.nvim_open_win(buffer, true, window_config)
+  vim.api.nvim_win_set_config(window, window_config)
+  return window, buffer
+end
+
+local render_sarif_window
 
 --[[
 --  TableWidget class
@@ -150,24 +194,50 @@ function TableWidget:goto_next_row(self)
   if self.current_row < self.number_of_rows then
     self.current_row = self.current_row + 1
   end
-  TableWidget:render(self)
+  render_sarif_window()
 end
 
 function TableWidget:goto_prev_row(self)
   if self.current_row > 1 then
     self.current_row = self.current_row - 1
   end
-  TableWidget:render(self)
+  render_sarif_window()
 end
 
-
 --[[
---  Plugin State and Commands
+--  DetailWidget class
 --]]
-local state = {
-  sarif_logs = {},
-  table_widget = {},
-}
+local DetailWidget = {}
+DetailWidget.__index = DetailWidget
+DetailWidget.new = function(window, buffer)
+  return {
+    data = {},
+    window = window,
+    buffer = buffer,
+    width = vim.api.nvim_win_get_width(window),
+    height = vim.api.nvim_win_get_height(window),
+  }
+end
+
+function DetailWidget:render(self, result)
+  local lines = {}
+  table.insert(lines, "Message     : " .. result.level .. "\t" .. result.message)
+  table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
+  vim.api.nvim_buf_set_lines(self.buffer, 0, -1, false, {}) -- Clear buffer
+  vim.api.nvim_buf_set_lines(self.buffer, 0, 0, false, lines)
+end
+
+render_sarif_window = function()
+  TableWidget:render(state.table_widget)
+  local current_row = state.table_widget.current_row
+  local current_result = state.table_widget.data[current_row]
+  DetailWidget:render(state.detail_widget, current_result)
+end
+
+local function close_sarif_window()
+  vim.api.nvim_win_close(state.table_widget.window, true)
+  vim.api.nvim_win_close(state.detail_widget.window, true)
+end
 
 M.load_sarif_file = function(opts)
   filename = opts[1]
@@ -187,7 +257,7 @@ local function goto_result_location()
   local file = state.table_widget.data[current_row].file
   local start_position = state.table_widget.data[current_row].start_position
   local end_position = state.table_widget.data[current_row].end_position
-  vim.api.nvim_win_close(state.table_widget.window, true)
+  close_sarif_window()
   vim.cmd('edit ' .. file)
   vim.cmd('call cursor(' .. tostring(start_position[1]) .. "," .. tostring(start_position[2]) .. ")")
   -- FIXME Highlight range
@@ -196,21 +266,7 @@ end
 
 M.view_sarif = function()
   -- Create a floating window to display results
-  local width = vim.o.columns
-  local height = vim.o.lines
-  local config = {
-    relative = "editor",
-    width = width - 8,
-    height = height - 4,
-    style = "minimal",
-    border = "single",
-    col = 4,
-    row = 2,
-    zindex = 1,
-  }
-  local buf = vim.api.nvim_create_buf(false, true)
-  local win = vim.api.nvim_open_win(buf, true, config)
-  vim.api.nvim_win_set_config(win, config)
+  create_window_configurations()
 
   -- Parse SARIF logs and display a list of bugs to display
   local result_data = {}
@@ -219,14 +275,22 @@ M.view_sarif = function()
       table.insert(result_data, result)
     end
   end
-  state.table_widget = TableWidget.new(result_data, win, buf, {"level", "file", "message"}, {5, 70, 80})
-  TableWidget:render(state.table_widget)
 
-  -- Set some keybindings for the buffer
-  buffer_keymap("q", buf, function() vim.api.nvim_win_close(win, true) end)
-  buffer_keymap("k", buf, function() TableWidget:goto_prev_row(state.table_widget) end)
-  buffer_keymap("j", buf, function() TableWidget:goto_next_row(state.table_widget) end)
-  buffer_keymap("<Enter>", buf, function() goto_result_location() end)
+  local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
+  state.table_widget = TableWidget.new(result_data, table_window, table_buffer, {"level", "file", "message"}, {5, 70, 80})
+  buffer_keymap("q", table_buffer, function() close_sarif_window() end)
+  buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
+  buffer_keymap("j", table_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
+  buffer_keymap("<Enter>", table_buffer, function() goto_result_location() end)
+
+  local detail_window, detail_buffer = create_window_and_buffer(state.window_configs["detail"])
+  state.detail_widget = DetailWidget.new(detail_window, detail_buffer)
+  buffer_keymap("q", detail_buffer, function() close_sarif_window() end)
+  buffer_keymap("k", detail_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
+  buffer_keymap("j", detail_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
+  buffer_keymap("<Enter>", detail_buffer, function() goto_result_location() end)
+
+  render_sarif_window()
 end
 
 return M
