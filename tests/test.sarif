@@ -1,0 +1,179 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Lua Language Server",
+          "version": "1.0.0",
+          "informationUri": "https://github.com/LuaLS/lua-language-server",
+          "rules": [
+            {
+              "id": "unused-local",
+              "shortDescription": {
+                "text": "Defined local variable is not used"
+              },
+              "helpUri": "https://github.com/LuaLS/lua-language-server"
+            },
+            {
+              "id": "redefined-local",
+              "shortDescription": {
+                "text": "Local variable is redefined"
+              },
+              "helpUri": "https://github.com/LuaLS/lua-language-server"
+            },
+            {
+              "id": "trailing-space",
+              "shortDescription": {
+                "text": "Line has trailing space"
+              },
+              "helpUri": "https://github.com/LuaLS/lua-language-server"
+            }
+          ]
+        }
+      },
+      "artifacts": [
+        {
+          "location": {
+            "uri": "lua/sarif.lua"
+          }
+        }
+      ],
+      "results": [
+        {
+          "level": "warning",
+          "message": {
+            "text": "Local variable end_position is unused"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lua/sarif.lua",
+                  "index": 0
+                },
+                "region": {
+                  "startLine": 342,
+                  "startColumn": 9
+                }
+              }
+            }
+          ],
+          "ruleId": "unused-local",
+          "ruleIndex": 0
+        },
+        {
+          "level": "warning",
+          "message": {
+            "text": "Local variable ok redefined"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lua/sarif.lua",
+                  "index": 0
+                },
+                "region": {
+                  "startLine": 125,
+                  "startColumn": 13
+                }
+              }
+            }
+          ],
+          "ruleId": "redefined-local",
+          "ruleIndex": 1,
+          "codeFlows": [ {
+            "threadFlows": [ {
+                "locations" : [ {
+                    "location" : {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": "lua/sarif.lua",
+                                "index": 0
+                            },
+                            "region": {
+                                "startLine": 121,
+                                "startColumn": 8
+                            }
+                        }
+                    }
+                }, {
+                    "location" : {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": "lua/sarif.lua",
+                                "index": 0
+                            },
+                            "region": {
+                                "startLine": 114,
+                                "startColumn": 8
+                            }
+                        }
+                    }
+                }, {
+                    "location" : {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": "lua/sarif.lua",
+                                "index": 0
+                            },
+                            "region": {
+                                "startLine": 109,
+                                "startColumn": 8
+                            }
+                        }
+                    }
+                } ]
+            } ]
+          } ]
+        },
+        {
+          "level": "note",
+          "message": {
+            "text": "Line has trailing space"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lua/sarif.lua",
+                  "index": 0
+                },
+                "region": {
+                  "startLine": 28,
+                  "startColumn": 74
+                }
+              }
+            }
+          ],
+          "ruleId": "trailing-space",
+          "ruleIndex": 2
+        },
+        {
+          "level": "note",
+          "message": {
+            "text": "Line has trailing space"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "lua/sarif.lua",
+                  "index": 0
+                },
+                "region": {
+                  "startLine": 29,
+                  "startColumn": 76
+                }
+              }
+            }
+          ],
+          "ruleId": "trailing-space",
+          "ruleIndex": 2
+        }
+      ]
+    }
+  ]
+}
