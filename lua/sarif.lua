@@ -14,24 +14,19 @@ local state = {
 local Result = {}
 Result.__index = Result
 Result.new = function(json, log_id, run_id, result_id)
-  local level = ""
-  if json["level"] == "error" then
-    level = "ERR"
-  elseif json["level"] == "warning" then
-    level = "WARN"
-  elseif json["level"] == "note" then
-    level = "INFO"
-  end
 
-  local filename = json["locations"][1]["physicalLocation"]["artifactLocation"]["uri"]
-  local start_position = {
-    json["locations"][1]["physicalLocation"]["region"]["startLine"] or 0, 
-    json["locations"][1]["physicalLocation"]["region"]["startColumn"] or 0, 
-  }
-  local end_position = {
-    json["locations"][1]["physicalLocation"]["region"]["endLine"] or start_position[1], 
-    json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
-  }
+  local filename
+  if #json["locations"] >= 1 then
+    filename = json["locations"][1]["physicalLocation"]["artifactLocation"]["uri"]
+    local start_position = {
+      json["locations"][1]["physicalLocation"]["region"]["startLine"] or 0, 
+      json["locations"][1]["physicalLocation"]["region"]["startColumn"] or 0, 
+    }
+    local end_position = {
+      json["locations"][1]["physicalLocation"]["region"]["endLine"] or start_position[1], 
+      json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
+    }
+  end
 
   local rule_id
   local rule_index = json["ruleIndex"]
@@ -46,6 +41,24 @@ Result.new = function(json, log_id, run_id, result_id)
   else
     rule_index = rule_index + 1 -- To convert to 1 based indexing
     rule_id = state.sarif_logs[log_id].runs[run_id].rules[rule_index]['id']
+  end
+
+  local level
+  if json["level"] then
+    level = json["level"]
+  else
+    -- If the level is not specified in the Run, get it from the rule
+    local rule_data = state.sarif_logs[log_id].runs[run_id].rules[rule_index]
+    if rule_data["defaultConfiguration"] and rule_data["defaultConfiguration"]["level"] then
+      level = rule_data["defaultConfiguration"]["level"]
+    end
+  end
+  if level == "error" then
+    level = "ERR"
+  elseif level == "warning" then
+    level = "WARN"
+  elseif level == "note" then
+    level = "INFO"
   end
 
   state.sarif_logs[log_id].runs[run_id].results[result_id] = {
@@ -72,8 +85,12 @@ Run.new = function(json, log_id, run_id)
   run.json = json
 
   local tool = json["tool"]["driver"]["name"]
-  tool = tool .. ((" " .. json["tool"]["driver"]["version"]) or "")
-  tool = tool .. ((" (" .. json["tool"]["driver"]["informationUri"] .. ")") or "")
+  if json["tool"]["driver"]["version"] then
+    tool = tool .. ((" " .. json["tool"]["driver"]["version"]) or "")
+  end
+  if json["tool"]["driver"]["informationUri"] then
+    tool = tool .. ((" (" .. json["tool"]["driver"]["informationUri"] .. ")") or "")
+  end
   run.tool = tool
 
   local rules = {}
@@ -83,8 +100,10 @@ Run.new = function(json, log_id, run_id)
   run.rules = rules
 
   local artifacts = {}
-  for artifact_index, artifact in ipairs(json["artifacts"]) do
-    artifacts[artifact_index] = artifact
+  if json["artifacts"] then
+    for artifact_index, artifact in ipairs(json["artifacts"]) do
+      artifacts[artifact_index] = artifact
+    end
   end
   run.artifacts = artifacts
 
@@ -139,8 +158,10 @@ SarifLog.new = function(filename)
   state.sarif_logs[filename].runs = {}
   -- Get a list of all runs
   local runs = {}
-  for run_id, run in ipairs(json["runs"]) do
-    Run.new(run, filename, run_id)
+  if json["runs"] then
+    for run_id, run in ipairs(json["runs"]) do
+      Run.new(run, filename, run_id)
+    end
   end
 
   vim.print("Loaded SARIF log " .. filename .. " successfully")
@@ -226,7 +247,13 @@ function TableWidget:render(self)
       line = line .. " "
     end
     for i, field in ipairs(self.fields) do
-      local field_data = string.sub(rowdata[field], 1, self.fields_col_size[i])
+      local field_data
+      if rowdata[field] then
+        field_data = string.sub(rowdata[field], 1, self.fields_col_size[i])
+      else
+        field_data = ""
+      end
+      
       local field_data_len = #field_data
       line = line .. "\t" .. field_data
       if field_data_len < self.fields_col_size[i] then
@@ -277,11 +304,27 @@ function DetailWidget:render(self, result)
   local run_id = result.id[2]
   local result_id = result.id[3]
   table.insert(lines, "Message     : " .. result.level .. "\t" .. result.message)
-  table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
+  if result.file then
+    if result.start_position then
+      table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
+    else
+      table.insert(lines, "File        : " .. result.file)
+    end
+  end
   table.insert(lines, "SARIF log   : " .. result.id[1])
   table.insert(lines, "Reported by : " .. state.sarif_logs[log_id].runs[run_id].tool)
   local rule = state.sarif_logs[log_id].runs[run_id].rules[result.rule_index]
-  table.insert(lines, "Rule        : (" .. result.rule_id .. ") " .. rule["shortDescription"]["text"])
+  table.insert(lines, "Rule        : " .. result.rule_id)
+  if rule["shortDescription"] then
+    table.insert(lines, "              " .. rule["shortDescription"]["text"])
+  end
+  if rule["fullDescription"] then
+    if not rule["shortDescription"] or rule["shortDescription"]["text"] ~= rule["fullDescription"]["text"] then
+      for line in string.gmatch(rule["fullDescription"]["text"], "[^\n]+") do
+        table.insert(lines, "              " .. line)
+      end
+    end
+  end
   if rule["helpUri"] then
     table.insert(lines, "Help URI    : " .. rule["helpUri"])
   end
@@ -338,6 +381,7 @@ end
 local function goto_result_location()
   local current_row = state.table_widget.current_row
   local file = state.table_widget.data[current_row].file
+  if not file then return end
   local start_position = state.table_widget.data[current_row].start_position
   local end_position = state.table_widget.data[current_row].end_position
   close_sarif_window()
