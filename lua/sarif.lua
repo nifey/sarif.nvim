@@ -15,14 +15,14 @@ local Result = {}
 Result.__index = Result
 Result.new = function(json, log_id, run_id, result_id)
 
-  local filename
+  local filename, start_position, end_position
   if #json["locations"] >= 1 then
     filename = json["locations"][1]["physicalLocation"]["artifactLocation"]["uri"]
-    local start_position = {
+    start_position = {
       json["locations"][1]["physicalLocation"]["region"]["startLine"] or 0, 
       json["locations"][1]["physicalLocation"]["region"]["startColumn"] or 0, 
     }
-    local end_position = {
+    end_position = {
       json["locations"][1]["physicalLocation"]["region"]["endLine"] or start_position[1], 
       json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
     }
@@ -383,7 +383,6 @@ local function goto_result_location()
   local file = state.table_widget.data[current_row].file
   if not file then return end
   local start_position = state.table_widget.data[current_row].start_position
-  local end_position = state.table_widget.data[current_row].end_position
   close_sarif_window()
   vim.cmd('edit ' .. file)
   vim.cmd('call cursor(' .. tostring(start_position[1]) .. "," .. tostring(start_position[2]) .. ")")
