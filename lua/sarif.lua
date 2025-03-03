@@ -231,6 +231,7 @@ TableWidget.new = function(data, window, buffer, fields, fields_col_size)
     width = vim.api.nvim_win_get_width(window),
     height = vim.api.nvim_win_get_height(window),
     current_row = 1,
+    scroll_window_start_row = 1,
     number_of_rows = #data,
     fields = fields,
     fields_col_size = fields_col_size,
@@ -240,30 +241,32 @@ end
 function TableWidget:render(self)
   local lines = {}
   for i, rowdata in ipairs(self.data) do
-    local line = ""
-    if i == self.current_row then
-      line = line .. ">"
-    else
-      line = line .. " "
-    end
-    for i, field in ipairs(self.fields) do
-      local field_data
-      if rowdata[field] then
-        field_data = string.sub(rowdata[field], 1, self.fields_col_size[i])
+    if i >= self.scroll_window_start_row and i <= self.scroll_window_start_row + self.height - 2 then
+      local line = ""
+      if i == self.current_row then
+        line = line .. ">"
       else
-        field_data = ""
+        line = line .. " "
       end
-      
-      local field_data_len = #field_data
-      line = line .. "\t" .. field_data
-      if field_data_len < self.fields_col_size[i] then
-        for _ = 1, self.fields_col_size[i] - field_data_len do
-          line = line .. " "
+      for i, field in ipairs(self.fields) do
+        local field_data
+        if rowdata[field] then
+          field_data = string.sub(rowdata[field], 1, self.fields_col_size[i])
+        else
+          field_data = ""
+        end
+
+        local field_data_len = #field_data
+        line = line .. "\t" .. field_data
+        if field_data_len < self.fields_col_size[i] then
+          for _ = 1, self.fields_col_size[i] - field_data_len do
+            line = line .. " "
+          end
         end
       end
+      line = string.sub(line, 1, self.width - 5)
+      table.insert(lines, line)
     end
-    line = string.sub(line, 1, self.width - 5)
-    table.insert(lines, line)
   end
   vim.api.nvim_buf_set_lines(self.buffer, 0, -1, false, {}) -- Clear buffer
   vim.api.nvim_buf_set_lines(self.buffer, 0, 0, false, lines)
@@ -272,6 +275,9 @@ end
 function TableWidget:goto_next_row(self)
   if self.current_row < self.number_of_rows then
     self.current_row = self.current_row + 1
+    if self.current_row > self.scroll_window_start_row + self.height - 2 then
+      self.scroll_window_start_row = self.scroll_window_start_row + 1
+    end
   end
   render_sarif_window()
 end
@@ -279,6 +285,9 @@ end
 function TableWidget:goto_prev_row(self)
   if self.current_row > 1 then
     self.current_row = self.current_row - 1
+    if self.current_row < self.scroll_window_start_row then
+      self.scroll_window_start_row = self.scroll_window_start_row - 1
+    end
   end
   render_sarif_window()
 end
