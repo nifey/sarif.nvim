@@ -18,18 +18,28 @@ Result.new = function(json, log_id, run_id, result_id)
   local filename, start_position, end_position
   if #json["locations"] >= 1 then
     filename = json["locations"][1]["physicalLocation"]["artifactLocation"]["uri"]
-    start_position = {
-      json["locations"][1]["physicalLocation"]["region"]["startLine"] or 0, 
-      json["locations"][1]["physicalLocation"]["region"]["startColumn"] or 0, 
-    }
-    end_position = {
-      json["locations"][1]["physicalLocation"]["region"]["endLine"] or start_position[1], 
-      json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
-    }
+    if json["locations"][1]["physicalLocation"]["region"] then
+      start_position = {
+        json["locations"][1]["physicalLocation"]["region"]["startLine"] or 0, 
+        json["locations"][1]["physicalLocation"]["region"]["startColumn"] or 0, 
+      }
+      end_position = {
+        json["locations"][1]["physicalLocation"]["region"]["endLine"] or start_position[1], 
+        json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
+      }
+    else
+      start_position = {0, 0}
+      end_position = {0, 0}
+    end
   end
 
   local rule_id
-  local rule_index = json["ruleIndex"]
+  local rule_index
+  if json["ruleIndex"] then
+    rule_index = json["ruleIndex"]
+  elseif json["rule"] and json["rule"]["index"] then
+    rule_index = json["rule"]["index"]
+  end
   if not rule_index then
     rule_id = json["ruleId"]
     for index, rule in ipairs(state.sarif_logs[log_id].runs[run_id].rules) do
@@ -322,20 +332,22 @@ function DetailWidget:render(self, result)
   end
   table.insert(lines, "SARIF log   : " .. result.id[1])
   table.insert(lines, "Reported by : " .. state.sarif_logs[log_id].runs[run_id].tool)
-  local rule = state.sarif_logs[log_id].runs[run_id].rules[result.rule_index]
-  table.insert(lines, "Rule        : " .. result.rule_id)
-  if rule["shortDescription"] then
-    table.insert(lines, "              " .. rule["shortDescription"]["text"])
-  end
-  if rule["fullDescription"] then
-    if not rule["shortDescription"] or rule["shortDescription"]["text"] ~= rule["fullDescription"]["text"] then
-      for line in string.gmatch(rule["fullDescription"]["text"], "[^\n]+") do
-        table.insert(lines, "              " .. line)
+  if result.rule_index then
+    local rule = state.sarif_logs[log_id].runs[run_id].rules[result.rule_index]
+    table.insert(lines, "Rule        : " .. result.rule_id)
+    if rule["shortDescription"] then
+      table.insert(lines, "              " .. rule["shortDescription"]["text"])
+    end
+    if rule["fullDescription"] then
+      if not rule["shortDescription"] or rule["shortDescription"]["text"] ~= rule["fullDescription"]["text"] then
+        for line in string.gmatch(rule["fullDescription"]["text"], "[^\n]+") do
+          table.insert(lines, "              " .. line)
+        end
       end
     end
-  end
-  if rule["helpUri"] then
-    table.insert(lines, "Help URI    : " .. rule["helpUri"])
+    if rule["helpUri"] then
+      table.insert(lines, "Help URI    : " .. rule["helpUri"])
+    end
   end
 
   -- Display state and comments
