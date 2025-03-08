@@ -405,6 +405,17 @@ M.load_sarif_file = function(opts)
       table.insert(state.results, result)
     end
   end
+  table.sort(state.results, function(a, b)
+    if a.file == b.file then
+      if a.rule_id and b.rule_id then
+        return a.rule_id < b.rule_id
+      else
+        return a.rule_id == nil
+      end
+    else
+      return a.file < b.file
+    end
+  end)
 end
 
 local buffer_keymap = function(key, buf, command)
