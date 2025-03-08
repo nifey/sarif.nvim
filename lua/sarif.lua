@@ -2,6 +2,9 @@ local M = {}
 
 local state = {
   sarif_logs = {},
+  results = {},
+  current_row = 1,
+  current_scroll_window_start_row = 1,
   sarif_comments = {},
   table_widget = {},
   detail_widget = {},
@@ -233,15 +236,15 @@ local TableWidget = {}
 TableWidget.__index = TableWidget
 -- @param fields Ordered list of fields to display
 -- @param fields_col_size Column size to use for each field
-TableWidget.new = function(data, window, buffer, fields, fields_col_size)
+TableWidget.new = function(data, current_row, scroll_window_start_row, window, buffer, fields, fields_col_size)
   return {
     data = data,
     window = window,
     buffer = buffer,
     width = vim.api.nvim_win_get_width(window),
     height = vim.api.nvim_win_get_height(window),
-    current_row = 1,
-    scroll_window_start_row = 1,
+    current_row = current_row,
+    scroll_window_start_row = scroll_window_start_row,
     number_of_rows = #data,
     fields = fields,
     fields_col_size = fields_col_size,
@@ -386,13 +389,22 @@ render_sarif_window = function()
 end
 
 local function close_sarif_window()
+  state.current_row = state.table_widget.current_row
+  state.current_scroll_window_start_row = state.table_widget.scroll_window_start_row
   vim.api.nvim_win_close(state.table_widget.window, true)
   vim.api.nvim_win_close(state.detail_widget.window, true)
 end
 
 M.load_sarif_file = function(opts)
   filename = opts[1]
-  SarifLog.new(filename)
+  SarifLog.new(filename) -- Create a new SARIFLog and add to state.sarif_logs
+  -- Load list of results to state
+  state.results = {}
+  for _, sarif_log in pairs(state.sarif_logs) do
+    for _, result in ipairs(SarifLog:get_results(sarif_log)) do
+      table.insert(state.results, result)
+    end
+  end
 end
 
 local buffer_keymap = function(key, buf, command)
@@ -468,16 +480,8 @@ M.view_sarif = function()
   -- Create a floating window to display results
   create_window_configurations()
 
-  -- Parse SARIF logs and display a list of bugs to display
-  local result_data = {}
-  for _, sarif_log in pairs(state.sarif_logs) do
-    for _, result in ipairs(SarifLog:get_results(sarif_log)) do
-      table.insert(result_data, result)
-    end
-  end
-
   local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
-  state.table_widget = TableWidget.new(result_data, table_window, table_buffer, {"level", "file", "message"}, {5, 70, 80})
+  state.table_widget = TableWidget.new(state.results, state.current_row, state.current_scroll_window_start_row, table_window, table_buffer, {"level", "file", "message"}, {5, 70, 80})
   buffer_keymap("q", table_buffer, close_sarif_window)
   buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
   buffer_keymap("j", table_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
