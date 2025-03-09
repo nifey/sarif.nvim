@@ -11,6 +11,14 @@ local state = {
   window_configs = {},
 }
 
+local function substitute_placeholders(string, arguments)
+  for index, value in ipairs(arguments) do
+    value = value:gsub("%%", "%%%%") -- To escape % characters the arguments
+    string = string:gsub("{" .. tostring(index-1) .. "}", value)
+  end
+  return string
+end
+
 --[[
 --  Result class
 --]]
@@ -74,6 +82,41 @@ Result.new = function(json, log_id, run_id, result_id)
     level = "INFO"
   end
 
+  local message
+  local message_arguments = json["message"]["arguments"] or {}
+  if json["message"]["text"] then
+    message = substitute_placeholders(json["message"]["text"], message_arguments)
+  elseif json["message"]["id"] then
+    local message_id = json["message"]["id"]
+    -- Try to get the message from rule.messageStrings
+    if rule_index then
+      local rule_message_strings = state.sarif_logs[log_id].runs[run_id].rules[rule_index]['messageStrings'] or nil
+      if rule_message_strings then
+        for _, rule_message_id in ipairs(rule_message_strings) do
+          if message_id == rule_message_id then
+            message = substitute_placeholders(rule_message_strings[rule_message_id]["text"], message_arguments)
+            break
+          end
+        end
+      end
+    end
+    if not message then
+      -- Try to get the message from driver.globalMessageStrings
+      local global_message_strings = state.sarif_logs[log_id].runs[run_id].json["tool"]["driver"]["globalMessageStrings"] or nil
+      if global_message_strings then
+        for global_message_id, message_object in pairs(global_message_strings) do
+          if message_id == global_message_id then
+            message = substitute_placeholders(message_object["text"], message_arguments)
+            break
+          end
+        end
+      end
+    end
+  end
+  if not message then
+    message = ""
+  end
+
   state.sarif_logs[log_id].runs[run_id].results[result_id] = {
     id = {log_id, run_id, result_id},
     json = json,
@@ -81,7 +124,7 @@ Result.new = function(json, log_id, run_id, result_id)
     start_position = start_position,
     end_position = end_position,
     file = filename,
-    message = json["message"]["text"],
+    message = message,
     rule_id = rule_id,
     rule_index = rule_index,
   }
@@ -317,6 +360,8 @@ DetailWidget.new = function(window, buffer)
     buffer = buffer,
     width = vim.api.nvim_win_get_width(window),
     height = vim.api.nvim_win_get_height(window),
+    scroll_window_start_row = 1,
+    scroll_window_limit = 1,
   }
 end
 
@@ -325,7 +370,6 @@ function DetailWidget:render(self, result)
   local log_id = result.id[1]
   local run_id = result.id[2]
   local result_id = result.id[3]
-  table.insert(lines, "Message     : " .. result.level .. "\t" .. result.message)
   if result.file then
     if result.start_position then
       table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
@@ -375,8 +419,36 @@ function DetailWidget:render(self, result)
     end
   end
 
+  table.insert(lines, "")
+  local message = "Message     : " .. result.level .. "\t" .. result.message
+  for line in string.gmatch(message, "[^\n]+") do
+    table.insert(lines, line)
+  end
+
+  self.scroll_window_limit = #lines
+  local visible_lines = {}
+  for i, line in ipairs(lines) do
+    if i >= self.scroll_window_start_row and i <= self.scroll_window_start_row + self.height - 2 then
+      table.insert(visible_lines, line)
+    end
+  end
+
   vim.api.nvim_buf_set_lines(self.buffer, 0, -1, false, {}) -- Clear buffer
-  vim.api.nvim_buf_set_lines(self.buffer, 0, 0, false, lines)
+  vim.api.nvim_buf_set_lines(self.buffer, 0, 0, false, visible_lines)
+end
+
+function DetailWidget:goto_next_row(self)
+  if self.scroll_window_start_row < self.scroll_window_limit - self.height + 2 then
+    self.scroll_window_start_row = self.scroll_window_start_row + 1
+  end
+  render_sarif_window()
+end
+
+function DetailWidget:goto_prev_row(self)
+  if self.scroll_window_start_row > 1 then
+    self.scroll_window_start_row = self.scroll_window_start_row - 1
+  end
+  render_sarif_window()
 end
 
 render_sarif_window = function()
@@ -391,6 +463,7 @@ end
 local function close_sarif_window()
   state.current_row = state.table_widget.current_row
   state.current_scroll_window_start_row = state.table_widget.scroll_window_start_row
+  state.current_detail_view_scroll_start = state.detail_widget.scroll_window_start_row
   vim.api.nvim_win_close(state.table_widget.window, true)
   vim.api.nvim_win_close(state.detail_widget.window, true)
 end
@@ -496,7 +569,9 @@ M.view_sarif = function()
   buffer_keymap("q", table_buffer, close_sarif_window)
   buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
   buffer_keymap("j", table_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
-  buffer_keymap("l", table_buffer, toggle_result_state)
+  buffer_keymap("h", table_buffer, function() DetailWidget:goto_prev_row(state.detail_widget) end)
+  buffer_keymap("l", table_buffer, function() DetailWidget:goto_next_row(state.detail_widget) end)
+  buffer_keymap("m", table_buffer, toggle_result_state)
   buffer_keymap("i", table_buffer, edit_result_comment)
   buffer_keymap("<Enter>", table_buffer, function() goto_result_location() end)
 
@@ -505,7 +580,9 @@ M.view_sarif = function()
   buffer_keymap("q", detail_buffer, close_sarif_window)
   buffer_keymap("k", detail_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
   buffer_keymap("j", detail_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
-  buffer_keymap("l", detail_buffer, toggle_result_state)
+  buffer_keymap("h", detail_buffer, function() DetailWidget:goto_prev_row(state.detail_widget) end)
+  buffer_keymap("l", detail_buffer, function() DetailWidget:goto_next_row(state.detail_widget) end)
+  buffer_keymap("m", detail_buffer, toggle_result_state)
   buffer_keymap("i", detail_buffer, edit_result_comment)
   buffer_keymap("<Enter>", detail_buffer, function() goto_result_location() end)
 
