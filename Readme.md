@@ -52,16 +52,22 @@ The plugin provides two user commands `SarifLoad` to load a SARIF file, and `Sar
 :SarifView
 ```
 
+For ease of viewing the results, you may want to add a keybinding for the `SarifView` command, like below:
+```
+vim.keymap.set("n", "fs", "<cmd>SarifView<CR>")
+```
+
 When the SarifView window is open, the top window shows a table of results, where each row displays the file name and a short message about the error. The window on the bottom shows more information about the currently selected result including the rule, the SARIF log from which it was read, and the static analysis tool that created that report. When inside the SarifView window the following key bindings can be used:
 - `j` and `k` to move between the results in the results table
 - `<enter>` to go to the location of the currently selected bug report
-- `l` to toggle the status of the result (True positive, False positive or None)
+- `h` and `l` to scroll the detail view pane
+- `m` to mark the status of the result (Cycles between True positive, False positive and None)
 - `i` to update or insert a comment about a result
 
 ### Todo
 - UI improvements
-    - Scrolling support
     - Dynamic table resize
+    - Use colors and icons
 - Ability to sort, filter results based on file, category, bug status, etc
 - Ability to traverse codeflows given in the SARIF logs
 - Allow writing long-form comments rather than just a single line comment
