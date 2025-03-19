@@ -475,7 +475,18 @@ M.load_sarif_file = function(opts)
   state.results = {}
   for _, sarif_log in pairs(state.sarif_logs) do
     for _, result in ipairs(SarifLog:get_results(sarif_log)) do
-      table.insert(state.results, result)
+      local should_hide_result = false
+      if result.rule_index then
+        for _, hiddenRule in ipairs(state.sarif_comments[filename]["hiddenRules"]) do
+          if hiddenRule == result.rule_id then
+            should_hide_result = true
+            break
+          end
+        end
+      end
+      if not should_hide_result then
+        table.insert(state.results, result)
+      end
     end
   end
   table.sort(state.results, function(a, b)
