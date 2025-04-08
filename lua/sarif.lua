@@ -27,7 +27,11 @@ Result.__index = Result
 Result.new = function(json, log_id, run_id, result_id)
 
   local filename, start_position, end_position
-  if #json["locations"] >= 1 then
+  if not json["locations"] then
+    filename = ""
+    start_position = {0, 0}
+    end_position = {0, 0}
+  elseif #json["locations"] >= 1 then
     filename = json["locations"][1]["physicalLocation"]["artifactLocation"]["uri"]
     if json["locations"][1]["physicalLocation"]["region"] then
       start_position = {
@@ -370,7 +374,7 @@ function DetailWidget:render(self, result)
   local log_id = result.id[1]
   local run_id = result.id[2]
   local result_id = result.id[3]
-  if result.file then
+  if result.file ~= "" then
     if result.start_position then
       table.insert(lines, "File        : " .. result.file .. ":" .. result.start_position[1])
     else
