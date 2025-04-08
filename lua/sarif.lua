@@ -304,10 +304,38 @@ function TableWidget:render(self)
     if i >= self.scroll_window_start_row and i <= self.scroll_window_start_row + self.height - 2 then
       local line = ""
       if i == self.current_row then
-        line = line .. ">"
+        line = line .. "> "
       else
-        line = line .. " "
+        line = line .. "  "
       end
+
+      -- Add markers when the bug report is commented or marked
+      local log_id = rowdata.id[1]
+      local run_id = rowdata.id[2]
+      local result_id = rowdata.id[3]
+      local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
+      local result_comment_data = state.sarif_comments[log_id]["resultIdToNotes"][id_string] or {}
+      if result_comment_data then
+        if result_comment_data["comment"] then
+          line = line .. "*"
+        else
+          line = line .. " "
+        end
+        if result_comment_data["status"] then
+          if result_comment_data["status"] == 1 then
+            line = line .. "F"
+          elseif result_comment_data["status"] == 2 then
+            line = line .. "T"
+          else
+            line = line .. " "
+          end
+        else
+          line = line .. " "
+        end
+      else
+        line = line .. "  "
+      end
+
       for i, field in ipairs(self.fields) do
         local field_data
         if rowdata[field] then
@@ -324,7 +352,7 @@ function TableWidget:render(self)
           end
         end
       end
-      line = string.sub(line, 1, self.width - 5)
+      line = string.sub(line, 1, self.width - 8)
       table.insert(lines, line)
     end
   end
@@ -580,7 +608,7 @@ M.view_sarif = function()
   create_window_configurations()
 
   local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
-  state.table_widget = TableWidget.new(state.results, state.current_row, state.current_scroll_window_start_row, table_window, table_buffer, {"level", "file", "message"}, {5, 70, 80})
+  state.table_widget = TableWidget.new(state.results, state.current_row, state.current_scroll_window_start_row, table_window, table_buffer, {"level", "file", "message"}, {5, 40, 80})
   buffer_keymap("q", table_buffer, close_sarif_window)
   buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
   buffer_keymap("j", table_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
