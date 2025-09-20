@@ -4,6 +4,7 @@ local state = {
   sarif_logs = {},
   results = {},
   current_row = 1,
+  current_flow_index = nil,
   current_scroll_window_start_row = 1,
   sarif_comments = {},
   table_widget = {},
@@ -19,6 +20,23 @@ local function substitute_placeholders(string, arguments)
   return string
 end
 
+local function parse_location(location)
+  -- Parses a Location JSON object and returns the filename, start line and start column
+  local filename, start_position, end_position = "", {0, 0}, {0, 0}
+  filename = location["physicalLocation"]["artifactLocation"]["uri"]
+  if location["physicalLocation"]["region"] then
+    start_position = {
+      location["physicalLocation"]["region"]["startLine"] or 0, 
+      location["physicalLocation"]["region"]["startColumn"] or 0, 
+    }
+    end_position = {
+      location["physicalLocation"]["region"]["endLine"] or start_position[1], 
+      location["physicalLocation"]["region"]["endColumn"] or start_position[2], 
+    }
+  end
+  return filename, start_position, end_position
+end
+
 --[[
 --  Result class
 --]]
@@ -26,26 +44,9 @@ local Result = {}
 Result.__index = Result
 Result.new = function(json, log_id, run_id, result_id)
 
-  local filename, start_position, end_position
-  if not json["locations"] then
-    filename = ""
-    start_position = {0, 0}
-    end_position = {0, 0}
-  elseif #json["locations"] >= 1 then
-    filename = json["locations"][1]["physicalLocation"]["artifactLocation"]["uri"]
-    if json["locations"][1]["physicalLocation"]["region"] then
-      start_position = {
-        json["locations"][1]["physicalLocation"]["region"]["startLine"] or 0, 
-        json["locations"][1]["physicalLocation"]["region"]["startColumn"] or 0, 
-      }
-      end_position = {
-        json["locations"][1]["physicalLocation"]["region"]["endLine"] or start_position[1], 
-        json["locations"][1]["physicalLocation"]["region"]["endColumn"] or start_position[2], 
-      }
-    else
-      start_position = {0, 0}
-      end_position = {0, 0}
-    end
+  local filename, start_position, end_position = "", {0, 0}, {0, 0}
+  if json["locations"] and #json["locations"] >= 1 then
+    filename, start_position, end_position = parse_location(json["locations"][1])
   end
 
   local rule_id
@@ -121,6 +122,29 @@ Result.new = function(json, log_id, run_id, result_id)
     message = ""
   end
 
+  local code_flows = {}
+  if json["codeFlows"] then
+    for _, code_flow in pairs(json["codeFlows"]) do
+      for _, thread_flow in pairs(code_flow["threadFlows"]) do
+        for _, location in pairs(thread_flow["locations"]) do
+          if location then
+            local flow_message = nil
+            if location["message"] and location["message"]["text"] then
+              flow_message = location["message"]["text"]
+            end
+            flow_filename, start_position, end_position = parse_location(location)
+            table.insert(code_flows, {
+              message = flow_message,
+              filename = flow_filename,
+              start_position = start_position,
+              end_position = end_position,
+            })
+          end
+        end
+      end
+    end
+  end
+
   state.sarif_logs[log_id].runs[run_id].results[result_id] = {
     id = {log_id, run_id, result_id},
     json = json,
@@ -131,6 +155,7 @@ Result.new = function(json, log_id, run_id, result_id)
     message = message,
     rule_id = rule_id,
     rule_index = rule_index,
+    code_flows = code_flows,
   }
 end
 
@@ -363,6 +388,7 @@ end
 function TableWidget:goto_next_row(self)
   if self.current_row < self.number_of_rows then
     self.current_row = self.current_row + 1
+    self.current_flow_index = nil
     if self.current_row > self.scroll_window_start_row + self.height - 2 then
       self.scroll_window_start_row = self.scroll_window_start_row + 1
     end
@@ -373,6 +399,7 @@ end
 function TableWidget:goto_prev_row(self)
   if self.current_row > 1 then
     self.current_row = self.current_row - 1
+    self.current_flow_index = nil
     if self.current_row < self.scroll_window_start_row then
       self.scroll_window_start_row = self.scroll_window_start_row - 1
     end
@@ -548,6 +575,50 @@ local function goto_result_location()
   vim.cmd('call cursor(' .. tostring(start_position[1]) .. "," .. tostring(start_position[2]) .. ")")
   -- FIXME Highlight range
   -- FIXME If not start_col goto first non empty
+end
+
+M.goto_next_flow_location = function()
+  local current_row = state.table_widget.current_row
+  local code_flows = state.table_widget.data[current_row].code_flows
+  if #code_flows >= 1 then
+    if not state.current_flow_index then
+      -- We are just starting the flow for this result
+      state.current_flow_index = 1
+    elseif state.current_flow_index < #code_flows then
+      state.current_flow_index = state.current_flow_index + 1
+    end
+
+    -- Go to the current flow location
+    local flow = code_flows[state.current_flow_index]
+    if not flow.filename then return end
+    vim.cmd('edit ' .. flow.filename)
+    vim.cmd('call cursor(' .. tostring(flow.start_position[1]) .. "," .. tostring(flow.start_position[2]) .. ")")
+    if flow.message then
+      vim.cmd('echo "' .. flow.message .. '"')
+    end
+  end
+end
+
+M.goto_prev_flow_location = function()
+  local current_row = state.table_widget.current_row
+  local code_flows = state.table_widget.data[current_row].code_flows
+  if #code_flows >= 1 then
+    if not state.current_flow_index then
+      -- We are just starting the flow for this result
+      state.current_flow_index = 1
+    elseif state.current_flow_index > 1 then
+      state.current_flow_index = state.current_flow_index - 1
+    end
+
+    -- Go to the current flow location
+    local flow = code_flows[state.current_flow_index]
+    if not flow.filename then return end
+    vim.cmd('edit ' .. flow.filename)
+    vim.cmd('call cursor(' .. tostring(flow.start_position[1]) .. "," .. tostring(flow.start_position[2]) .. ")")
+    if flow.message then
+      vim.cmd('echo "' .. flow.message .. '"')
+    end
+  end
 end
 
 local function save_comments_file()
