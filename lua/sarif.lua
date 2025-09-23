@@ -324,6 +324,13 @@ TableWidget.new = function(data, current_row, scroll_window_start_row, window, b
   }
 end
 
+function TableWidget:set_table_data(self, data)
+  self.data = data
+  self.current_row = 1
+  self.scroll_window_start_row = 1
+  self.number_of_rows = #data
+end
+
 function TableWidget:render(self)
   local lines = {}
   for i, rowdata in ipairs(self.data) do
@@ -537,6 +544,18 @@ local function close_sarif_window()
   vim.api.nvim_win_close(state.detail_widget.window, true)
 end
 
+local sort_results_by_filename = function (a, b)
+  if a.file == b.file then
+    if a.rule_id and b.rule_id then
+      return a.rule_id < b.rule_id
+    else
+      return a.rule_id == nil
+    end
+  else
+    return a.file < b.file
+  end
+end
+
 M.load_sarif_file = function(opts)
   filename = opts[1]
   SarifLog.new(filename) -- Create a new SARIFLog and add to state.sarif_logs
@@ -558,17 +577,7 @@ M.load_sarif_file = function(opts)
       end
     end
   end
-  table.sort(state.results, function(a, b)
-    if a.file == b.file then
-      if a.rule_id and b.rule_id then
-        return a.rule_id < b.rule_id
-      else
-        return a.rule_id == nil
-      end
-    else
-      return a.file < b.file
-    end
-  end)
+  table.sort(state.results, sort_results_by_filename)
 end
 
 local buffer_keymap = function(key, command)
@@ -685,6 +694,41 @@ local function edit_result_comment()
   render_sarif_window()
 end
 
+local function get_filtered_results_by_rule_type(search_string)
+  -- Returns a data table with only the results that have 
+  -- the given field matching with the search string
+  local filtered_results = {}
+  for _, result in ipairs(state.results) do
+    if string.find(result.rule_id, search_string) then
+      local should_hide_result = false
+      if result.rule_index then
+        for _, hiddenRule in ipairs(state.sarif_comments[filename]["hiddenRules"]) do
+          if hiddenRule == result.rule_id then
+            should_hide_result = true
+            break
+          end
+        end
+      end
+      if not should_hide_result then
+        table.insert(filtered_results, result)
+      end
+    end
+  end
+  table.sort(filtered_results, sort_results_by_filename)
+  return filtered_results
+end
+
+local function filter_results_by_rule_type()
+  search_string = vim.fn.input({ prompt = 'Filter results with type matching: '})
+  TableWidget:set_table_data(state.table_widget, get_filtered_results_by_rule_type(search_string))
+  render_sarif_window()
+end
+
+local function reset_filter()
+  TableWidget:set_table_data(state.table_widget, state.results)
+  render_sarif_window()
+end
+
 M.view_sarif = function()
   -- Create a floating window to display results
   create_window_configurations()
@@ -706,6 +750,8 @@ M.view_sarif = function()
   buffer_keymap("m", toggle_result_state)
   buffer_keymap("i", edit_result_comment)
   buffer_keymap("<Enter>", function() goto_result_location() end)
+  buffer_keymap("/t", filter_results_by_rule_type)
+  buffer_keymap("/c", reset_filter)
 
   render_sarif_window()
 end
