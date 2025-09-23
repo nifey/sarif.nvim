@@ -526,7 +526,7 @@ render_sarif_window = function()
   else
     state.window_configs["table"].title = " SARIF Reports "
   end
-  vim.api.nvim_win_set_config(state.table_window, state.window_configs["table"])
+  vim.api.nvim_win_set_config(state.table_widget.window, state.window_configs["table"])
 end
 
 local function close_sarif_window()
@@ -572,8 +572,8 @@ M.load_sarif_file = function(opts)
 end
 
 local buffer_keymap = function(key, command)
-  vim.keymap.set("n", key, command, {buffer = state.table_buffer})
-  vim.keymap.set("n", key, command, {buffer = state.detail_buffer})
+  vim.keymap.set("n", key, command, {buffer = state.table_widget.buffer})
+  vim.keymap.set("n", key, command, {buffer = state.detail_widget.buffer})
 end
 
 local function goto_result_location()
@@ -689,13 +689,13 @@ M.view_sarif = function()
   -- Create a floating window to display results
   create_window_configurations()
 
-  state.table_window, state.table_buffer = create_window_and_buffer(state.window_configs["table"])
-  state.detail_window, state.detail_buffer = create_window_and_buffer(state.window_configs["detail"])
+  local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
+  local detail_window, detail_buffer = create_window_and_buffer(state.window_configs["detail"])
   state.table_widget = TableWidget.new(state.results, state.current_row, 
                         state.current_scroll_window_start_row,
-                        state.table_window, state.table_buffer,
+                        table_window, table_buffer,
                         {"level", "file", "message"}, {5, 40, 80})
-  state.detail_widget = DetailWidget.new(state.detail_window, state.detail_buffer)
+  state.detail_widget = DetailWidget.new(detail_window, detail_buffer)
 
   -- Key bindings for the Viewer
   buffer_keymap("q", close_sarif_window)
