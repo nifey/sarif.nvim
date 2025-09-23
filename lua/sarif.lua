@@ -279,6 +279,7 @@ local function create_window_configurations()
     col = 4,
     row = 2,
     zindex = 1,
+    title = " SARIF Reports "
   }
   state.window_configs["detail"] = {
     relative = "editor",
@@ -517,6 +518,15 @@ render_sarif_window = function()
   if current_result then
     DetailWidget:render(state.detail_widget, current_result)
   end
+
+  -- Update the title with the report count
+  if state.table_widget.data and #state.table_widget.data > 0 then
+    state.window_configs["table"].title = " SARIF Reports (" .. tostring(current_row) 
+                  .. "/" .. tostring(#state.table_widget.data) .. ") "
+  else
+    state.window_configs["table"].title = " SARIF Reports "
+  end
+  vim.api.nvim_win_set_config(state.table_window, state.window_configs["table"])
 end
 
 local function close_sarif_window()
@@ -679,6 +689,7 @@ M.view_sarif = function()
   create_window_configurations()
 
   local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
+  state.table_window = table_window
   state.table_widget = TableWidget.new(state.results, state.current_row, state.current_scroll_window_start_row, table_window, table_buffer, {"level", "file", "message"}, {5, 40, 80})
   buffer_keymap("q", table_buffer, close_sarif_window)
   buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
