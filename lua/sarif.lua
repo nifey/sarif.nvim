@@ -571,8 +571,9 @@ M.load_sarif_file = function(opts)
   end)
 end
 
-local buffer_keymap = function(key, buf, command)
-  vim.keymap.set("n", key, command, {buffer = buf})
+local buffer_keymap = function(key, command)
+  vim.keymap.set("n", key, command, {buffer = state.table_buffer})
+  vim.keymap.set("n", key, command, {buffer = state.detail_buffer})
 end
 
 local function goto_result_location()
@@ -688,28 +689,23 @@ M.view_sarif = function()
   -- Create a floating window to display results
   create_window_configurations()
 
-  local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
-  state.table_window = table_window
-  state.table_widget = TableWidget.new(state.results, state.current_row, state.current_scroll_window_start_row, table_window, table_buffer, {"level", "file", "message"}, {5, 40, 80})
-  buffer_keymap("q", table_buffer, close_sarif_window)
-  buffer_keymap("k", table_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
-  buffer_keymap("j", table_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
-  buffer_keymap("h", table_buffer, function() DetailWidget:goto_prev_row(state.detail_widget) end)
-  buffer_keymap("l", table_buffer, function() DetailWidget:goto_next_row(state.detail_widget) end)
-  buffer_keymap("m", table_buffer, toggle_result_state)
-  buffer_keymap("i", table_buffer, edit_result_comment)
-  buffer_keymap("<Enter>", table_buffer, function() goto_result_location() end)
+  state.table_window, state.table_buffer = create_window_and_buffer(state.window_configs["table"])
+  state.detail_window, state.detail_buffer = create_window_and_buffer(state.window_configs["detail"])
+  state.table_widget = TableWidget.new(state.results, state.current_row, 
+                        state.current_scroll_window_start_row,
+                        state.table_window, state.table_buffer,
+                        {"level", "file", "message"}, {5, 40, 80})
+  state.detail_widget = DetailWidget.new(state.detail_window, state.detail_buffer)
 
-  local detail_window, detail_buffer = create_window_and_buffer(state.window_configs["detail"])
-  state.detail_widget = DetailWidget.new(detail_window, detail_buffer)
-  buffer_keymap("q", detail_buffer, close_sarif_window)
-  buffer_keymap("k", detail_buffer, function() TableWidget:goto_prev_row(state.table_widget) end)
-  buffer_keymap("j", detail_buffer, function() TableWidget:goto_next_row(state.table_widget) end)
-  buffer_keymap("h", detail_buffer, function() DetailWidget:goto_prev_row(state.detail_widget) end)
-  buffer_keymap("l", detail_buffer, function() DetailWidget:goto_next_row(state.detail_widget) end)
-  buffer_keymap("m", detail_buffer, toggle_result_state)
-  buffer_keymap("i", detail_buffer, edit_result_comment)
-  buffer_keymap("<Enter>", detail_buffer, function() goto_result_location() end)
+  -- Key bindings for the Viewer
+  buffer_keymap("q", close_sarif_window)
+  buffer_keymap("k", function() TableWidget:goto_prev_row(state.table_widget) end)
+  buffer_keymap("j", function() TableWidget:goto_next_row(state.table_widget) end)
+  buffer_keymap("h", function() DetailWidget:goto_prev_row(state.detail_widget) end)
+  buffer_keymap("l", function() DetailWidget:goto_next_row(state.detail_widget) end)
+  buffer_keymap("m", toggle_result_state)
+  buffer_keymap("i", edit_result_comment)
+  buffer_keymap("<Enter>", function() goto_result_location() end)
 
   render_sarif_window()
 end
