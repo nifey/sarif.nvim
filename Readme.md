@@ -46,15 +46,21 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
 ### Usage
 
-The plugin provides two user commands `SarifLoad` to load a SARIF file, and `SarifView` to view the loaded results.
-```
-:SarifLoad <file.sarif>
-:SarifView
-```
+The plugin provides the following user commands:
+- `SarifLoad` to load a SARIF file
+    ```
+    :SarifLoad <file.sarif>
+    ```
+- `SarifView` to view the loaded results
+    ```
+    :SarifView
+- `SarifCodeFlowPrev` and `SarifCodeFlowNext` to travese the [Code Flow locations](https://github.com/microsoft/sarif-tutorials/blob/main/docs/3-Beyond-basics.md#code-flows) of the current result (if provided in the SARIF log).
 
 For ease of viewing the results, you may want to add a keybinding for the `SarifView` command, like below:
 ```
-vim.keymap.set("n", "fs", "<cmd>SarifView<CR>")
+vim.keymap.set("n", "fs",    "<cmd>SarifView<CR>")
+vim.keymap.set("n", "<M-i>", "<cmd>SarifCodeFlowNext<CR>")
+vim.keymap.set("n", "<M-o>", "<cmd>SarifCodeFlowPrev<CR>")
 ```
 
 When the SarifView window is open, the top window shows a table of results, where each row displays the file name and a short message about the error. The window on the bottom shows more information about the currently selected result including the rule, the SARIF log from which it was read, and the static analysis tool that created that report. When inside the SarifView window the following key bindings can be used:
@@ -63,13 +69,17 @@ When the SarifView window is open, the top window shows a table of results, wher
 - `h` and `l` to scroll the detail view pane
 - `m` to mark the status of the result (Cycles between True positive, False positive and None)
 - `i` to update or insert a comment about a result
+- `q` to close the viewer
+- `/r` to filter the displayed results based on rule ID mentioned in the report
+- `/f` to filter the displayed results based on filename mentioned in the report
+- `/s` to filter the displayed results based on the marked status (True/False positive and None)
+- `/c` to clear the applied filters and display all the results
 
 ### Todo
 - UI improvements
     - Dynamic table resize
     - Use colors and icons
-- Ability to sort, filter results based on file, category, bug status, etc
-- Ability to traverse codeflows given in the SARIF logs
 - Allow writing long-form comments rather than just a single line comment
 - Handling more generic cases from SARIF Specifications
 - Integrate with Nvim diagnostics to show the reports for the current file while editing
+- In Code Flows, Support traversing multiple thread flows separately, and also display the state and nesting level information
