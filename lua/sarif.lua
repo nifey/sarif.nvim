@@ -309,26 +309,49 @@ local TableWidget = {}
 TableWidget.__index = TableWidget
 -- @param fields Ordered list of fields to display
 -- @param fields_col_size Column size to use for each field
-TableWidget.new = function(data, current_row, scroll_window_start_row, window, buffer, fields, fields_col_size)
+TableWidget.new = function(window, buffer, fields, fields_col_size)
   return {
-    data = data,
     window = window,
     buffer = buffer,
     width = vim.api.nvim_win_get_width(window),
     height = vim.api.nvim_win_get_height(window),
-    current_row = current_row,
-    scroll_window_start_row = scroll_window_start_row,
-    number_of_rows = #data,
     fields = fields,
     fields_col_size = fields_col_size,
+
+    -- The following fields will be filled in by set_table_data
+    data = {},
+    current_row = 1,
+    scroll_window_start_row = 1,
+    number_of_rows = 0,
+    number_of_true_positives = 0,
+    number_of_false_positives = 0,
   }
 end
 
-function TableWidget:set_table_data(self, data)
+function TableWidget:set_table_data(self, data, current_row, scroll_window_start_row)
   self.data = data
-  self.current_row = 1
-  self.scroll_window_start_row = 1
+  self.current_row = current_row or 1
+  self.scroll_window_start_row = scroll_window_start_row or 1
   self.number_of_rows = #data
+
+  self.number_of_true_positives = 0
+  self.number_of_false_positives = 0
+  for _, result in ipairs(data) do
+    local log_id = result.id[1]
+    local run_id = result.id[2]
+    local result_id = result.id[3]
+    local id_string = tostring(run_id - 1) .. "|" .. tostring(result_id - 1)
+    local result_comment_data = state.sarif_comments[log_id]["resultIdToNotes"][id_string] or {}
+    if result_comment_data then
+      if result_comment_data["status"] then
+        if result_comment_data["status"] == 1 then
+          self.number_of_false_positives = self.number_of_false_positives + 1
+        elseif result_comment_data["status"] == 2 then
+          self.number_of_true_positives = self.number_of_true_positives + 1
+        end
+      end
+    end
+  end
 end
 
 function TableWidget:render(self)
@@ -407,6 +430,7 @@ end
 function TableWidget:goto_prev_row(self)
   if self.current_row > 1 then
     self.current_row = self.current_row - 1
+    state.detail_widget.scroll_window_start_row = 1
     self.current_flow_index = nil
     if self.current_row < self.scroll_window_start_row then
       self.scroll_window_start_row = self.scroll_window_start_row - 1
@@ -529,7 +553,9 @@ render_sarif_window = function()
   -- Update the title with the report count
   if state.table_widget.data and #state.table_widget.data > 0 then
     state.window_configs["table"].title = " SARIF Reports (" .. tostring(current_row) 
-                  .. "/" .. tostring(#state.table_widget.data) .. ") "
+                  .. "/" .. tostring(#state.table_widget.data) .. ") " .. " " ..
+                  " TP: " .. tostring(state.table_widget.number_of_true_positives) ..
+                  " FP: " .. tostring(state.table_widget.number_of_false_positives)
   else
     state.window_configs["table"].title = " SARIF Reports "
   end
@@ -537,9 +563,12 @@ render_sarif_window = function()
 end
 
 local function close_sarif_window()
-  state.current_row = state.table_widget.current_row
-  state.current_scroll_window_start_row = state.table_widget.scroll_window_start_row
-  state.current_detail_view_scroll_start = state.detail_widget.scroll_window_start_row
+  -- Save context and close
+  state.context = {}
+  state.context.current_row = state.table_widget.current_row
+  state.context.current_data = state.table_widget.data
+  state.context.current_scroll_window_start_row = state.table_widget.scroll_window_start_row
+  state.context.current_detail_view_scroll_start = state.detail_widget.scroll_window_start_row
   vim.api.nvim_win_close(state.table_widget.window, true)
   vim.api.nvim_win_close(state.detail_widget.window, true)
 end
@@ -651,8 +680,8 @@ local function save_comments_file()
   end
 end
 
-local function get_current_result_comment_data()
-  local current_result_id = state.table_widget.data[state.table_widget.current_row].id
+local function get_result_comment_data(result)
+  local current_result_id = result.id
   local log_id = current_result_id[1]
   local run_id = current_result_id[2]
   local result_id = current_result_id[3]
@@ -665,6 +694,10 @@ local function get_current_result_comment_data()
   return result_comment_data
 end
 
+local function get_current_result_comment_data()
+  return get_result_comment_data(state.table_widget.data[state.table_widget.current_row])
+end
+
 local function set_current_result_comment_data(data)
   local current_result_id = state.table_widget.data[state.table_widget.current_row].id
   local log_id = current_result_id[1]
@@ -674,13 +707,34 @@ local function set_current_result_comment_data(data)
   state.sarif_comments[log_id]["resultIdToNotes"][id_string] = data
 end
 
-local function toggle_result_state()
+local function get_result_status(result)
+  local result_comment_data = get_result_comment_data(result)
+  if result_comment_data["status"] == 0 then
+    return " "
+  elseif result_comment_data["status"] == 1 then
+    return "F"
+  elseif result_comment_data["status"] == 2 then
+    return "T"
+  else
+    return " "
+  end
+end
+
+local function toggle_result_status()
   local result_comment_data = get_current_result_comment_data()
   local result_status = result_comment_data["status"] or 0
   result_status = (result_status + 1) % 3
   result_comment_data["status"] = result_status
   set_current_result_comment_data(result_comment_data)
   save_comments_file()
+  if result_status == 1 then
+    state.table_widget.number_of_false_positives = state.table_widget.number_of_false_positives + 1
+  elseif result_status == 2 then
+    state.table_widget.number_of_false_positives = state.table_widget.number_of_false_positives - 1
+    state.table_widget.number_of_true_positives = state.table_widget.number_of_true_positives + 1
+  else
+    state.table_widget.number_of_true_positives = state.table_widget.number_of_true_positives - 1
+  end
   render_sarif_window()
 end
 
@@ -694,12 +748,12 @@ local function edit_result_comment()
   render_sarif_window()
 end
 
-local function get_filtered_results_by_rule_type(search_string)
+local function get_filtered_results(get_field, search_string)
   -- Returns a data table with only the results that have 
   -- the given field matching with the search string
   local filtered_results = {}
-  for _, result in ipairs(state.results) do
-    if string.find(result.rule_id, search_string) then
+  for _, result in ipairs(state.table_widget.data) do
+    if string.find(get_field(result), search_string) then
       local should_hide_result = false
       if result.rule_index then
         for _, hiddenRule in ipairs(state.sarif_comments[filename]["hiddenRules"]) do
@@ -718,10 +772,26 @@ local function get_filtered_results_by_rule_type(search_string)
   return filtered_results
 end
 
-local function filter_results_by_rule_type()
+local function filter_results_by_rule()
   search_string = vim.fn.input({ prompt = 'Filter results with type matching: '})
-  TableWidget:set_table_data(state.table_widget, get_filtered_results_by_rule_type(search_string))
+  TableWidget:set_table_data(state.table_widget, get_filtered_results(function(result) return result.rule_id end, search_string))
   render_sarif_window()
+end
+
+local function filter_results_by_filename()
+  search_string = vim.fn.input({ prompt = 'Filter results with filename matching: '})
+  TableWidget:set_table_data(state.table_widget, get_filtered_results(function(result) return result.file end, search_string))
+  render_sarif_window()
+end
+
+local function filter_results_by_status()
+  search_string = vim.fn.input({ prompt = 'Filter results with status (specify T/F/ ): '})
+  if search_string == " " or search_string == "T" or search_string == "F" then
+    TableWidget:set_table_data(state.table_widget, get_filtered_results(get_result_status, search_string))
+    render_sarif_window()
+  else
+    vim.print("Invalid search status specified. Specify one of 'T', 'F' or ' '")
+  end
 end
 
 local function reset_filter()
@@ -735,11 +805,17 @@ M.view_sarif = function()
 
   local table_window, table_buffer = create_window_and_buffer(state.window_configs["table"])
   local detail_window, detail_buffer = create_window_and_buffer(state.window_configs["detail"])
-  state.table_widget = TableWidget.new(state.results, state.current_row, 
-                        state.current_scroll_window_start_row,
-                        table_window, table_buffer,
-                        {"level", "file", "message"}, {5, 40, 80})
+  state.table_widget = TableWidget.new(table_window, table_buffer, {"level", "file", "message"}, {5, 40, 80})
   state.detail_widget = DetailWidget.new(detail_window, detail_buffer)
+
+  -- Restore previous context if found
+  if state.context then
+    local context = state.context
+    state.detail_widget.scroll_window_start_row = context.current_detail_view_scroll_start
+    TableWidget:set_table_data(state.table_widget, context.current_data, context.current_row, context.current_scroll_window_start_row)
+  else
+    TableWidget:set_table_data(state.table_widget, state.results)
+  end
 
   -- Key bindings for the Viewer
   buffer_keymap("q", close_sarif_window)
@@ -747,10 +823,12 @@ M.view_sarif = function()
   buffer_keymap("j", function() TableWidget:goto_next_row(state.table_widget) end)
   buffer_keymap("h", function() DetailWidget:goto_prev_row(state.detail_widget) end)
   buffer_keymap("l", function() DetailWidget:goto_next_row(state.detail_widget) end)
-  buffer_keymap("m", toggle_result_state)
+  buffer_keymap("m", toggle_result_status)
   buffer_keymap("i", edit_result_comment)
   buffer_keymap("<Enter>", function() goto_result_location() end)
-  buffer_keymap("/t", filter_results_by_rule_type)
+  buffer_keymap("/r", filter_results_by_rule)
+  buffer_keymap("/f", filter_results_by_filename)
+  buffer_keymap("/s", filter_results_by_status)
   buffer_keymap("/c", reset_filter)
 
   render_sarif_window()
