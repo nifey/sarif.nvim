@@ -73,6 +73,9 @@ When the SarifView window is open, the top window shows a table of results, wher
 - `/r` to filter the displayed results based on rule ID mentioned in the report
 - `/f` to filter the displayed results based on filename mentioned in the report
 - `/s` to filter the displayed results based on the marked status (True/False positive and None)
+- `/d` to filter the displayed results based on the description
+- `/#` to filter the displayed results based on the comment
+- `/*` to only display the results with comments
 - `/c` to clear the applied filters and display all the results
 
 ### Todo

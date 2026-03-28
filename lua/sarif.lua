@@ -456,7 +456,7 @@ DetailWidget.new = function(window, buffer)
   }
 end
 
-function DetailWidget:render(self, result)
+function get_result_description(result)
   local lines = {}
   local log_id = result.id[1]
   local run_id = result.id[2]
@@ -516,6 +516,11 @@ function DetailWidget:render(self, result)
     table.insert(lines, line)
   end
 
+  return lines
+end
+
+function DetailWidget:render(self, result)
+  local lines = get_result_description(result)
   self.scroll_window_limit = #lines
   local visible_lines = {}
   for i, line in ipairs(lines) do
@@ -784,6 +789,43 @@ local function filter_results_by_filename()
   render_sarif_window()
 end
 
+local function filter_results_with_comment()
+  TableWidget:set_table_data(state.table_widget, get_filtered_results(
+    function(result) 
+      local result_comment_data = get_result_comment_data(result)
+      if result_comment_data["comment"] then
+        return "found"
+      else
+        return "no"
+      end
+    end, "found"))
+  render_sarif_window()
+end
+
+local function filter_results_by_comment()
+  search_string = vim.fn.input({ prompt = 'Filter results with comments matching: '})
+  TableWidget:set_table_data(state.table_widget, get_filtered_results(
+    function(result) 
+      local result_comment_data = get_result_comment_data(result)
+      return result_comment_data["comment"] or ""
+    end, search_string))
+  render_sarif_window()
+end
+
+local function filter_results_by_description()
+  search_string = vim.fn.input({ prompt = 'Filter results with descriptions matching: '})
+  TableWidget:set_table_data(state.table_widget, get_filtered_results(
+    function(result) 
+      local description_lines = get_result_description(result)
+      local description = ""
+      for _, line in ipairs(description_lines) do
+        description = description .. line
+      end
+      return description
+    end, search_string))
+  render_sarif_window()
+end
+
 local function filter_results_by_status()
   search_string = vim.fn.input({ prompt = 'Filter results with status (specify T/F/ ): '})
   if search_string == " " or search_string == "T" or search_string == "F" then
@@ -829,6 +871,9 @@ M.view_sarif = function()
   buffer_keymap("/r", filter_results_by_rule)
   buffer_keymap("/f", filter_results_by_filename)
   buffer_keymap("/s", filter_results_by_status)
+  buffer_keymap("/*", filter_results_with_comment)
+  buffer_keymap("/#", filter_results_by_comment)
+  buffer_keymap("/d", filter_results_by_description)
   buffer_keymap("/c", reset_filter)
 
   render_sarif_window()
